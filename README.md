@@ -1,6 +1,8 @@
 # Cesloi-Alconna
 Cesloi-CommandAnalysis的高级版，支持解析消息链
 
+Alconna表示想变得更~~可爱~~美观一点
+
 ## Example
 ```python
 from cesloi.alconna import Alconna, Option, AnyStr

@@ -25,3 +25,32 @@ print(result.get('install'))
 ```
 {'pak_name': 'cesloi'}
 ```
+
+## 用法
+通过阅读Alconna的签名可以得知，Alconna支持四大类参数：
+ - `headers` : 呼叫该命令的命令头，一般是你的机器人的名字或者符号，与command至少有一个填写. 例如: /, !
+ - `command` : 命令名称，你的命令的名字，与headers至少有一个填写
+ - `options` : 命令选项，你的命令可选择的所有option,是一个包含Subcommand与Option的列表
+ - `main_argument` : 主参数，填入后当且仅当命令中含有该参数时才会成功解析
+
+解析时，先判断命令头(即 headers + command),再判断options与main argument, 这里options与main argument在输入指令时是不分先后的
+
+假设有个Alconna如下:
+```python
+Alconna(
+    headers=["/"],
+    command="name",
+    options=[
+        Subcommand("sub_name",Option("sub-opt", sub_arg="sub_arg")),
+        Option("opt", arg="arg")
+        ]
+    main_argument="main_argument"
+)
+```
+则它可以解析如下命令:
+```
+/name sub_name sub-opt sub_arg opt arg main_argument
+/name main_argument opt arg
+/name main_argument
+```
+解析成功的命令的参数会保存在analysis_message方法返回的`Arpamar`实例中

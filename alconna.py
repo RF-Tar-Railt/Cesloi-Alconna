@@ -253,7 +253,7 @@ class Alconna(CommandInterface):
                 break
 
         _text_static = {}  # 统计字符串被切出来的次数
-        while _head not all(list(map(lambda x: x[0] == "", self.result.raw_texts))):
+        while _head and not all(list(map(lambda x: x[0] == "", self.result.raw_texts))):
             try:
                 for param in _params:
                     _text, _rest_text = self.result.split_by(self.separator)

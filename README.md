@@ -5,15 +5,14 @@ Alconna表示想变得更~~可爱~~美观一点
 
 ## Example
 ```python
-from cesloi.alconna import Alconna, Option, AnyStr
+from cesloi.alconna import Alconna, Option, Subcommand, AnyStr
 
 cmd = Alconna(
     headers=["/"],
     command="pip",
     options=[
-        Option("install", pak_name=AnyStr),
+        Subcommand("install", Option("--upgrade"), args=AnyStr)
         Option("list"),
-        Option("--upgrade")
     ]
 )
 
@@ -23,7 +22,7 @@ print(result.get('install'))
 ```
 其结果为
 ```
-{'pak_name': 'cesloi'}
+{'args': 'cesloi'}
 ```
 
 ## 用法
@@ -41,7 +40,7 @@ Alconna(
     headers=["/"],
     command="name",
     options=[
-        Subcommand("sub_name",Option("sub-opt", sub_arg="sub_arg")),
+        Subcommand("sub_name",Option("sub-opt", sub_arg="sub_arg"), args=sub_main_arg),
         Option("opt", arg="arg")
         ]
     main_argument="main_argument"
@@ -50,6 +49,7 @@ Alconna(
 则它可以解析如下命令:
 ```
 /name sub_name sub-opt sub_arg opt arg main_argument
+/name sub_name sub_main_arg opt arg main_argument
 /name main_argument opt arg
 /name main_argument
 ```

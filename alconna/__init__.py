@@ -1,30 +1,8 @@
 from typing import Dict, List, Optional, Union, Type, Any, TypeVar
 from pydantic import BaseModel
 import re
-
-from .messageChain import MessageChain  # 请确保 MessageChain 格式的正确
-
-
-class ParamsUnmatched(Exception):
-    """一个 text 没有被任何参数匹配成功"""
-
-
-def split_once(text: str, separate: str):  # 相当于另类的pop, 不会改变本来的字符串
-    out_text = ""
-    quotation_stack = []
-    is_split = True
-    for char in text:
-        if char in "'\"":  # 遇到引号括起来的部分跳过分隔
-            if not quotation_stack:
-                is_split = False
-                quotation_stack.append(char)
-            else:
-                is_split = True
-                quotation_stack.pop(-1)
-        if separate == char and is_split:
-            break
-        out_text += char
-    return out_text, text.replace(out_text, "", 1).replace(separate, "", 1)
+from .util import split_once
+from .exceptions import ParamsUnmatched, NullName, InvalidOptionName
 
 
 AnyIP = r"(\d+)\.(\d+)\.(\d+)\.(\d+)"
@@ -33,8 +11,10 @@ AnyStr = r"(.+)"
 AnyUrl = r"(http[s]?://.+)"
 
 NonTextElement = TypeVar("NonTextElement")
+MessageChain = TypeVar("MessageChain")
 
 Argument_T = Union[str, Type[NonTextElement]]
+
 
 class CommandInterface(BaseModel):
     name: str
@@ -56,11 +36,12 @@ class OptionInterface(CommandInterface):
 
 class Option(OptionInterface):
     type: str = "OPT"
-    args: Dict[str, Argument_T]
 
     def __init__(self, name: str, **kwargs):
         if name == "":
-            raise ValueError("You can't give this with a null name !")
+            raise NullName
+        if re.match(r"^[`~?/.,<>;\':\"|!@#$%^&*()_+=\[\]}{]+.*$", name):
+            raise InvalidOptionName
         super().__init__(
             name=name,
             args={k: v for k, v in kwargs.items() if k not in ('name', 'type')}
@@ -70,11 +51,12 @@ class Option(OptionInterface):
 class Subcommand(OptionInterface):
     type: str = "SBC"
     Options: List[Option]
-    args: Dict[str, Argument_T]
 
     def __init__(self, name: str, *options: Option, **kwargs):
         if name == "":
-            raise ValueError("You can't give this with a null name !")
+            raise NullName
+        if re.match(r"^[`~?/.,<>;\':\"|!@#$%^&*()_+=\[\]}{]+.*$", name):
+            raise InvalidOptionName
         super().__init__(
             name=name,
             Options=list(options),
@@ -83,6 +65,7 @@ class Subcommand(OptionInterface):
 
 
 Options_T = List[OptionInterface]
+_builtin_option = Option("-help")
 
 
 class Arpamar(BaseModel):
@@ -108,7 +91,7 @@ class Arpamar(BaseModel):
         self.is_str: bool = False  # 是否解析的是string
         self.results: Dict[str, Any] = {'options': {}}
         self.elements: Dict[int, NonTextElement] = {}
-        self.raw_texts: List[List[Union[int, str]]] = []  # [["aa", 0], ["bb", 0], ["cc", 2]]
+        self.raw_texts: List[List[Union[int, str]]] = []
         self.need_marg: bool = False
         self.matched: bool = False
         self.head_matched: bool = False
@@ -127,18 +110,18 @@ class Arpamar(BaseModel):
             return self.head_matched
 
     @property
-    def args(self):
+    def option_args(self):
         return self._args
 
     def encapsulate_result(self) -> None:
         for k, v in self.results['options'].items():
-            k: str = re.sub(r'[\-`~?/.,<>;\':\"|!@#$%^&*()_+=\[\]}{]+', "", k)
-            self.__setattr__(k, v)
-            for kk, vv in v.items():
-                if not isinstance(vv, dict):
-                    self._args[kk] = vv
-                else:
-                    self._args.update(vv)
+            self.__setattr__(k.lstrip("-"), v)
+            if isinstance(v, dict):
+                for kk, vv in v.items():
+                    if not isinstance(vv, dict):
+                        self._args[kk.lstrip("-")] = vv
+                    else:
+                        self._args.update(vv)
 
     def get(self, name: str) -> dict:
         return self.__getattribute__(name)
@@ -173,7 +156,7 @@ class Alconna(CommandInterface):
         headers=[""],
         command="name",
         options=[
-            Subcommand("sub_name",Option("sub-opt", sub_arg=sub_arg)),
+            Subcommand("sub_name",Option("sub-opt", sub_arg=sub_arg), args=sub_main_arg),
             Option("opt", arg=arg)
             ]
         main_argument=main_argument
@@ -184,6 +167,7 @@ class Alconna(CommandInterface):
         - sub_name: 子命令名称
         - sub-opt: 子命令选项名称
         - sub_arg: 子命令选项参数
+        - sub_main_arg: 子命令主参数
         - opt: 命令选项名称
         - arg: 命令选项参数
 
@@ -210,7 +194,7 @@ class Alconna(CommandInterface):
     ):
         # headers与command二者必须有其一
         if all([all([not headers, not command]), not options, not main_argument]):
-            raise ValueError("You must input one parameter!")
+            raise NullName
         super().__init__(
             headers=headers or [""],
             command=command or "",
@@ -218,6 +202,7 @@ class Alconna(CommandInterface):
             options=options or [],
             main_argument=main_argument or "",
         )
+        self.options.append(_builtin_option)
 
         # params是除开命令头的剩下部分
         self._params: Dict[str, Union[Argument_T, Dict[str, Any]]] = {"main_argument": self.main_argument}
@@ -242,8 +227,11 @@ class Alconna(CommandInterface):
                     may_arg, may_args = split_once(may_args, sep)
                 else:
                     may_arg, rest_text = self.result.split_by(sep)
-                if not re.match('^' + v + '$', may_arg):
+                _arg_find = re.findall('^' + v + '$', may_arg)
+                if not _arg_find:
                     raise ParamsUnmatched
+                if _arg_find[0] == v:
+                    may_arg = Ellipsis
                 if key_name not in option_dict:
                     option_dict[key_name] = {k: may_arg}
                 else:
@@ -271,27 +259,32 @@ class Alconna(CommandInterface):
             raise ParamsUnmatched
         self.result.raw_texts[self.result.current_index][0] = rest_text
         if not arg:
-            option_dict[text] = ...
+            option_dict[text] = Ellipsis
             return True
         return self._analyse_args(name, arg, may_args, sep, rest_text, option_dict)
 
     def _analyse_subcommand(self, param, text, rest_text) -> bool:
         command = param['name']
         sep = param['separator']
+        sub_params = param['sub_params']
         name, may_text = split_once(text, sep)
         if sep == self.separator:
             name = text
         if not re.match('^' + command + '$', name):
             raise ParamsUnmatched
+
         self.result.raw_texts[self.result.current_index][0] = may_text
         if sep == self.separator:
             self.result.raw_texts[self.result.current_index][0] = rest_text
+
+        if not param['args'] and not param['Options']:
+            self.result.results['options'][name] = Ellipsis
+            return True
 
         if name not in self.result.results['options']:
             self.result.results['options'][name] = {}
 
         subcommand = {}
-        sub_params = param['sub_params']
         get_args = False
         for i in range(len(sub_params)):
             try:
@@ -416,4 +409,3 @@ class Alconna(CommandInterface):
         else:
             self.result.results.clear()
         return self.result
-

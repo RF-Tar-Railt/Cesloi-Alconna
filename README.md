@@ -1,3 +1,7 @@
+# Attention
+
+该仓库即将弃用，新仓库在这:[指路](https://github.com/ArcletProject/Alconna)
+
 # Cesloi-Alconna
 
 `Alconna` 是 `Cesloi-CommandAnalysis`的高级版，支持解析消息链
